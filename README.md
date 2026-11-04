@@ -1,46 +1,52 @@
 # Tienda de microservicios en Kubernetes
 
-Proyecto académico de una tienda sencilla con tres microservicios REST en Python/Flask, Docker y Kubernetes (Minikube).
+Aplicación académica de tienda con tres APIs REST (Flask), un frontend web (Nginx), Docker y Kubernetes/Minikube.
 
-## 1. Arquitectura
+## Arquitectura
 
-| Servicio | Endpoints | Réplicas |
+| Componente | Función | Réplicas |
 |---|---|---:|
-| clientes | `GET /clientes`, `GET /clientes/{id}`, `GET /health` | 2 |
-| productos | `GET /productos`, `GET /productos/{id}`, `GET /health` | 2 |
-| pedidos | `GET /pedidos`, `POST /pedidos`, `GET /health` | 2 |
+| frontend | Interfaz web y proxy HTTP hacia las APIs | 2 |
+| clientes | Consulta de clientes | 2 |
+| productos | Catálogo de productos | 2 |
+| pedidos | Consulta y creación de pedidos; consume clientes y productos | 2 |
 
-Los servicios `clientes` y `productos` son internos (ClusterIP). El servicio `pedidos` consulta ambos servicios mediante DNS interno de Kubernetes al recibir un pedido. Los pedidos se guardan en memoria: son datos de demostración y se pierden al reiniciar el contenedor; para persistencia real se necesitaría una base de datos.
+Todos los componentes se despliegan en el namespace `tienda`. Los servicios internos usan ClusterIP. El frontend es el único punto de entrada del navegador: Nginx sirve los archivos estáticos y reenvía las rutas `/api/clientes`, `/api/productos` y `/api/pedidos` a los microservicios mediante DNS interno de Kubernetes.
 
-## 2. Requisitos
+Los pedidos se guardan en memoria en el microservicio, por lo que desaparecen cuando el contenedor se reinicia. Es una aplicación demostrativa, no un sistema de producción.
 
-- Windows 10/11 con virtualización habilitada.
-- Docker Desktop instalado y ejecutándose con backend WSL 2.
+## Requisitos
+
+- Windows 10/11.
+- Docker Desktop ejecutándose con backend WSL 2.
 - Minikube y kubectl instalados.
 - PowerShell.
 
-Con 8 GB de RAM se recomienda comenzar con 2 CPU y 3072 MB para Minikube, cerrando aplicaciones pesadas mientras se ejecuta el clúster.
+En un equipo con 8 GB de RAM, utiliza 2 CPU y 3072 MB para Minikube y cierra programas pesados.
 
-## 3. Iniciar Minikube
+## 1. Descargar los últimos cambios
 
-En PowerShell:
+Si ya habías clonado el repositorio, no necesitas clonarlo otra vez:
+
+```powershell
+cd RUTA\A\kubernetes-2
+git pull origin main
+```
+
+## 2. Encender Docker y Minikube
+
+Abre Docker Desktop y espera a que indique que Docker está en ejecución. Luego, desde PowerShell:
 
 ```powershell
 minikube start --driver=docker --cpus=2 --memory=3072
 kubectl get nodes
 ```
 
-Si Minikube ya existe con otra configuración, puedes detenerlo y recrearlo:
+Si ya tienes un clúster Minikube configurado y está iniciado, no necesitas recrearlo. Puedes comprobarlo con `minikube status`.
 
-```powershell
-minikube stop
-minikube delete
-minikube start --driver=docker --cpus=2 --memory=3072
-```
+## 3. Construir las cinco imágenes? No: las cuatro imágenes de la aplicación
 
-## 4. Construir las imágenes dentro de Minikube
-
-En PowerShell, configura la consola Docker para que los comandos `docker build` creen imágenes dentro del entorno de Minikube:
+En la misma ventana de PowerShell, desde la carpeta raíz del repositorio, ejecuta:
 
 ```powershell
 minikube docker-env --shell powershell | Invoke-Expression
@@ -48,83 +54,80 @@ minikube docker-env --shell powershell | Invoke-Expression
 docker build -t tienda-clientes:1.0 ./clientes
 docker build -t tienda-productos:1.0 ./productos
 docker build -t tienda-pedidos:1.0 ./pedidos
+docker build -t tienda-frontend:1.0 ./frontend
 
 docker images
 ```
 
-No cierres esa ventana de PowerShell antes de terminar de desplegar. Los manifiestos usan `imagePullPolicy: Never`, por lo que Kubernetes utilizará las imágenes locales de Minikube y no intentará descargarlas de un registro.
+Es importante construir las imágenes después de configurar `minikube docker-env`, porque los manifiestos utilizan `imagePullPolicy: Never` y esperan encontrar las imágenes dentro del entorno Docker de Minikube. Mantén abierta esa terminal durante el despliegue.
 
-## 5. Desplegar en Kubernetes
-
-Desde la carpeta raíz del repositorio:
+## 4. Desplegar toda la aplicación
 
 ```powershell
 kubectl apply -f k8s/
-kubectl get all -n tienda
-kubectl get pods -n tienda -o wide
+kubectl get pods -n tienda
 kubectl get services -n tienda
 ```
 
-Espera a que los seis pods estén listos:
+Espera a que los cuatro Deployments estén listos:
 
 ```powershell
+kubectl rollout status deployment/frontend -n tienda
 kubectl rollout status deployment/clientes -n tienda
 kubectl rollout status deployment/productos -n tienda
 kubectl rollout status deployment/pedidos -n tienda
 ```
 
-## 6. Probar los endpoints
+Deberás tener ocho pods en total: dos por cada Deployment.
 
-Abre otra ventana de PowerShell y crea un túnel al servicio de pedidos:
+## 5. Abrir el frontend
+
+Abre una segunda ventana de PowerShell (deja activa la primera) y ejecuta:
 
 ```powershell
-kubectl port-forward service/pedidos 8080:5000 -n tienda
+kubectl port-forward service/frontend 8080:80 -n tienda
 ```
 
-Mientras el comando siga ejecutándose, abre otra consola:
+Abre en tu navegador:
+
+```text
+http://localhost:8080
+```
+
+No cierres la terminal donde se está ejecutando `port-forward`; ese proceso mantiene el acceso mientras utilizas la aplicación.
+
+El frontend permite:
+- Ver el catálogo de productos y sus precios y existencias.
+- Consultar los clientes registrados.
+- Crear pedidos seleccionando cliente, producto y cantidad.
+- Consultar los pedidos realizados durante la ejecución actual del servicio.
+
+## 6. Probar el flujo de pedidos
+
+Desde el formulario del frontend, selecciona un cliente y un producto, indica una cantidad y pulsa **Crear pedido**. El frontend envía un POST al microservicio pedidos. Este consulta clientes y productos a través de los Services internos de Kubernetes y devuelve el pedido con su total.
+
+También puedes probar el endpoint de salud del frontend en otra terminal:
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
-Invoke-RestMethod http://localhost:8080/pedidos
 ```
 
-Crear un pedido (el cliente 1 y el producto 2 existen en los datos de ejemplo):
+## 7. Demostrar recuperación automática (self-healing)
 
-```powershell
-$body = @{
-  cliente_id = 1
-  producto_id = 2
-  cantidad = 2
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri http://localhost:8080/pedidos -Method Post -ContentType "application/json" -Body $body
-```
-
-También puedes probar los servicios internos desde un pod temporal:
-
-```powershell
-kubectl run curl-test -n tienda --image=curlimages/curl:8.10.1 --restart=Never --command -- sleep 3600
-kubectl exec -n tienda curl-test -- curl -s http://clientes:5000/clientes
-kubectl exec -n tienda curl-test -- curl -s http://productos:5000/productos
-kubectl delete pod curl-test -n tienda
-```
-
-## 7. Demostrar self-healing
-
-Lista los pods y guarda el nombre de uno de clientes:
+Lista los pods de clientes:
 
 ```powershell
 kubectl get pods -n tienda -l app=clientes
 ```
 
-Elimina uno (sustituye el nombre por uno de los que aparecieron):
+Elimina uno de los pods, sustituyendo el nombre por uno real de la lista:
 
 ```powershell
 kubectl delete pod NOMBRE_DEL_POD -n tienda
 kubectl get pods -n tienda -l app=clientes -w
 ```
 
-Deployment detectará que falta una réplica y creará otro pod automáticamente. Pulsa Ctrl+C para salir del seguimiento.
+Kubernetes crea un pod de reemplazo para mantener las dos réplicas deseadas. Pulsa Ctrl+C para salir del seguimiento.
 
 ## 8. Escalar productos
 
@@ -133,72 +136,83 @@ kubectl scale deployment/productos --replicas=3 -n tienda
 kubectl get pods -n tienda -l app=productos
 ```
 
-Para regresar a dos réplicas:
+Para regresar a dos:
 
 ```powershell
 kubectl scale deployment/productos --replicas=2 -n tienda
 ```
 
-## 9. Acceso opcional con NodePort
-
-El despliegue principal mantiene pedidos como ClusterIP y usa port-forward. Si deseas probar NodePort, aplica el manifiesto opcional:
+## Diagnóstico
 
 ```powershell
-kubectl apply -f k8s/40-pedidos-nodeport.yaml
-minikube ip
-```
-
-Accede desde el equipo usando `http://IP_DE_MINIKUBE:30080` si la configuración de red de Minikube permite alcanzar ese puerto. Para retirarlo:
-
-```powershell
-kubectl delete -f k8s/40-pedidos-nodeport.yaml
-```
-
-## 10. Diagnóstico y limpieza
-
-```powershell
+kubectl get all -n tienda
 kubectl describe pods -n tienda
 kubectl logs deployment/pedidos -n tienda
+kubectl logs deployment/frontend -n tienda
 kubectl get events -n tienda --sort-by=.metadata.creationTimestamp
 ```
 
-Eliminar la aplicación:
+Si un pod queda en `ImagePullBackOff` o `ErrImageNeverPull`, comprueba que configuraste `minikube docker-env` y construiste la imagen con el nombre y etiqueta exactos indicados arriba.
+
+## Apagar el proyecto
+
+Para detener el acceso web, pulsa Ctrl+C en la terminal donde ejecutaste `kubectl port-forward`.
+
+Para apagar el clúster sin eliminarlo:
+
+```powershell
+minikube stop
+```
+
+Para volver a encenderlo otro día:
+
+```powershell
+minikube start
+kubectl get pods -n tienda
+```
+
+Si los pods siguen desplegados, vuelve a iniciar el port-forward para abrir el frontend. No es necesario reconstruir las imágenes mientras no cambies el código y el clúster Minikube conserve su entorno.
+
+Para eliminar la aplicación del clúster:
 
 ```powershell
 kubectl delete -f k8s/
 ```
 
-Eliminar también el clúster:
+Para eliminar también el clúster:
 
 ```powershell
 minikube delete
 ```
 
-## Estructura
+## Estructura del repositorio
 
 ```text
 kubernetes-2/
 ├── clientes/
 │   ├── app.py
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .dockerignore
+│   └── Dockerfile
 ├── productos/
 │   ├── app.py
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .dockerignore
+│   └── Dockerfile
 ├── pedidos/
 │   ├── app.py
 │   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .dockerignore
+│   └── Dockerfile
+├── frontend/
+│   ├── index.html
+│   ├── styles.css
+│   ├── app.js
+│   ├── nginx.conf
+│   └── Dockerfile
 ├── k8s/
 │   ├── 00-namespace.yaml
+│   ├── 05-frontend.yaml
 │   ├── 10-clientes.yaml
 │   ├── 20-productos.yaml
 │   ├── 30-pedidos.yaml
 │   └── 40-pedidos-nodeport.yaml
-├── .gitignore
 └── README.md
 ```
