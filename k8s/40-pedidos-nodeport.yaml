@@ -1,0 +1,15 @@
+# Opcional: aplica este archivo si prefieres exponer pedidos mediante NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pedidos-nodeport
+  namespace: tienda
+spec:
+  type: NodePort
+  selector:
+    app: pedidos
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      nodePort: 30080
