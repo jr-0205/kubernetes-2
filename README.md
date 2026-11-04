@@ -44,7 +44,7 @@ kubectl get nodes
 
 Si ya tienes un clúster Minikube configurado y está iniciado, no necesitas recrearlo. Puedes comprobarlo con `minikube status`.
 
-## 3. Construir las cinco imágenes? No: las cuatro imágenes de la aplicación
+## 3. Construir las cuatro imágenes de la aplicación
 
 En la misma ventana de PowerShell, desde la carpeta raíz del repositorio, ejecuta:
 
