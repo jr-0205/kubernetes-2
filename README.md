@@ -1,75 +1,129 @@
-# Tienda de microservicios en Kubernetes
+# Tienda de microservicios con Docker y Kubernetes
 
-Aplicación académica de tienda con tres APIs REST (Flask), un frontend web (Nginx), Docker y Kubernetes/Minikube.
+Proyecto académico que simula una pequeña tienda en línea. Está formado por tres microservicios (clientes, productos y pedidos) y una interfaz web (frontend). Docker construye las imágenes y Kubernetes ejecuta y administra los contenedores.
 
-## Arquitectura
+Esta guía explica cómo **encender el proyecto desde Windows usando Docker Desktop y PowerShell**, incluso si es la primera vez que utilizas Kubernetes.
 
-| Componente | Función | Réplicas |
-|---|---|---:|
-| frontend | Interfaz web y proxy HTTP hacia las APIs | 2 |
-| clientes | Consulta de clientes | 2 |
-| productos | Catálogo de productos | 2 |
-| pedidos | Consulta y creación de pedidos; consume clientes y productos | 2 |
+## ¿Qué incluye?
 
-Todos los componentes se despliegan en el namespace `tienda`. Los servicios internos usan ClusterIP. El frontend es el único punto de entrada del navegador: Nginx sirve los archivos estáticos y reenvía las rutas `/api/clientes`, `/api/productos` y `/api/pedidos` a los microservicios mediante DNS interno de Kubernetes.
+| Componente | ¿Qué hace? |
+|---|---|
+| **Frontend** | Página web desde la que se utiliza la tienda. |
+| **Clientes** | Muestra la información de los clientes. |
+| **Productos** | Muestra el catálogo de productos. |
+| **Pedidos** | Permite crear y consultar pedidos; se comunica con clientes y productos. |
 
-Los pedidos se guardan en memoria en el microservicio, por lo que desaparecen cuando el contenedor se reinicia. Es una aplicación demostrativa, no un sistema de producción.
+Kubernetes ejecuta dos réplicas de cada componente dentro del espacio de trabajo llamado `tienda`.
 
-## Requisitos
+> **Importante:** los pedidos se guardan temporalmente en memoria. Si el servicio se reinicia, los pedidos registrados se pierden. Es una aplicación demostrativa, no un sistema de producción.
 
-- Windows 10/11.
-- Docker Desktop ejecutándose con backend WSL 2.
-- Minikube y kubectl instalados.
+---
+
+## 1. Requisitos
+
+Antes de comenzar, necesitas:
+
+- Windows 10 u 11.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y abierto.
+- Kubernetes activado dentro de Docker Desktop.
+- `kubectl` instalado.
+- Git, si todavía no tienes descargado el repositorio.
 - PowerShell.
 
-En un equipo con 8 GB de RAM, utiliza 2 CPU y 3072 MB para Minikube y cierra programas pesados.
+### Activar Kubernetes en Docker Desktop
 
-## 1. Descargar los últimos cambios
+1. Abre Docker Desktop.
+2. Entra en **Settings**.
+3. Busca la sección **Kubernetes**.
+4. Activa Kubernetes (si todavía no está activado) y espera a que termine de iniciar.
+5. Comprueba que Docker Desktop esté funcionando.
 
-Si ya habías clonado el repositorio, no necesitas clonarlo otra vez:
+En este proyecto se utiliza el contexto `docker-desktop`. Puedes comprobarlo con:
+
+```powershell
+kubectl config current-context
+kubectl get nodes
+```
+
+El contexto debe ser `docker-desktop` y el nodo debe aparecer con estado `Ready`.
+
+---
+
+## 2. Descargar el proyecto
+
+Si todavía no tienes el repositorio en tu computadora:
+
+```powershell
+git clone https://github.com/jr-0205/kubernetes-2.git
+cd kubernetes-2
+```
+
+Si ya lo habías descargado anteriormente, entra a su carpeta y actualízalo:
 
 ```powershell
 cd RUTA\A\kubernetes-2
 git pull origin main
 ```
 
-## 2. Encender Docker y Minikube
+**Nota:** reemplaza `RUTA\A\kubernetes-2` por la ubicación real de la carpeta en tu computadora.
 
-Abre Docker Desktop y espera a que indique que Docker está en ejecución. Luego, desde PowerShell:
+---
 
-```powershell
-minikube start --driver=docker --cpus=2 --memory=3072
-kubectl get nodes
-```
+## 3. Construir las imágenes de Docker
 
-Si ya tienes un clúster Minikube configurado y está iniciado, no necesitas recrearlo. Puedes comprobarlo con `minikube status`.
-
-## 3. Construir las cuatro imágenes de la aplicación
-
-En la misma ventana de PowerShell, desde la carpeta raíz del repositorio, ejecuta:
+Abre PowerShell dentro de la carpeta principal del proyecto (donde está este README) y ejecuta estos comandos:
 
 ```powershell
-minikube docker-env --shell powershell | Invoke-Expression
-
 docker build -t tienda-clientes:1.0 ./clientes
 docker build -t tienda-productos:1.0 ./productos
 docker build -t tienda-pedidos:1.0 ./pedidos
 docker build -t tienda-frontend:1.0 ./frontend
+```
 
+Cada comando construye una imagen para uno de los componentes. La primera construcción puede tardar porque Docker necesita descargar las imágenes base y las dependencias.
+
+Para comprobar que las cuatro imágenes existen:
+
+```powershell
 docker images
 ```
 
-Es importante construir las imágenes después de configurar `minikube docker-env`, porque los manifiestos utilizan `imagePullPolicy: Never` y esperan encontrar las imágenes dentro del entorno Docker de Minikube. Mantén abierta esa terminal durante el despliegue.
+Debes encontrar estas etiquetas:
 
-## 4. Desplegar toda la aplicación
+- `tienda-clientes:1.0`
+- `tienda-productos:1.0`
+- `tienda-pedidos:1.0`
+- `tienda-frontend:1.0`
+
+> Si no modificaste el código y las cuatro imágenes ya están construidas, puedes saltarte este paso.
+
+---
+
+## 4. Encender la aplicación en Kubernetes
+
+Asegúrate de estar en la carpeta principal del repositorio. Ejecuta:
 
 ```powershell
 kubectl apply -f k8s/
+```
+
+Este comando crea el espacio de trabajo y los recursos necesarios para ejecutar la tienda.
+
+Comprueba que los contenedores estén iniciando:
+
+```powershell
 kubectl get pods -n tienda
+```
+
+Espera hasta que los pods aparezcan como `Running` y estén listos. El proyecto configura ocho pods: dos para cada uno de los cuatro componentes.
+
+Puedes comprobar también los servicios internos:
+
+```powershell
 kubectl get services -n tienda
 ```
 
-Espera a que los cuatro Deployments estén listos:
+Para esperar a que cada componente esté listo, ejecuta:
 
 ```powershell
 kubectl rollout status deployment/frontend -n tienda
@@ -78,141 +132,145 @@ kubectl rollout status deployment/productos -n tienda
 kubectl rollout status deployment/pedidos -n tienda
 ```
 
-Deberás tener ocho pods en total: dos por cada Deployment.
+---
 
-## 5. Abrir el frontend
+## 5. Abrir la página web
 
-Abre una segunda ventana de PowerShell (deja activa la primera) y ejecuta:
+Cuando los pods estén listos, ejecuta este comando:
 
 ```powershell
 kubectl port-forward service/frontend 8080:80 -n tienda
 ```
 
-Abre en tu navegador:
+Este comando conecta el puerto 8080 de tu computadora con el frontend que se ejecuta dentro de Kubernetes.
+
+Abre tu navegador y visita:
+
+**http://localhost:8080**
+
+> Deja abierta la ventana de PowerShell donde ejecutaste `port-forward`. Si la cierras, se interrumpe el acceso desde el navegador. Para detenerlo manualmente, pulsa **Ctrl + C**.
+
+Desde la página podrás consultar clientes y productos, crear pedidos y revisar los pedidos registrados durante la ejecución actual del servicio.
+
+---
+
+## 6. Apagar y volver a encender el proyecto
+
+### Detener el acceso web
+
+En la terminal donde se ejecuta `port-forward`, pulsa:
 
 ```text
-http://localhost:8080
+Ctrl + C
 ```
 
-No cierres la terminal donde se está ejecutando `port-forward`; ese proceso mantiene el acceso mientras utilizas la aplicación.
+Esto detiene el acceso desde el navegador, pero no elimina los recursos de Kubernetes.
 
-El frontend permite:
-- Ver el catálogo de productos y sus precios y existencias.
-- Consultar los clientes registrados.
-- Crear pedidos seleccionando cliente, producto y cantidad.
-- Consultar los pedidos realizados durante la ejecución actual del servicio.
+### Apagar la aplicación
 
-## 6. Probar el flujo de pedidos
-
-Desde el formulario del frontend, selecciona un cliente y un producto, indica una cantidad y pulsa **Crear pedido**. El frontend envía un POST al microservicio pedidos. Este consulta clientes y productos a través de los Services internos de Kubernetes y devuelve el pedido con su total.
-
-También puedes probar el endpoint de salud del frontend en otra terminal:
-
-```powershell
-Invoke-RestMethod http://localhost:8080/health
-```
-
-## 7. Demostrar recuperación automática (self-healing)
-
-Lista los pods de clientes:
-
-```powershell
-kubectl get pods -n tienda -l app=clientes
-```
-
-Elimina uno de los pods, sustituyendo el nombre por uno real de la lista:
-
-```powershell
-kubectl delete pod NOMBRE_DEL_POD -n tienda
-kubectl get pods -n tienda -l app=clientes -w
-```
-
-Kubernetes crea un pod de reemplazo para mantener las dos réplicas deseadas. Pulsa Ctrl+C para salir del seguimiento.
-
-## 8. Escalar productos
-
-```powershell
-kubectl scale deployment/productos --replicas=3 -n tienda
-kubectl get pods -n tienda -l app=productos
-```
-
-Para regresar a dos:
-
-```powershell
-kubectl scale deployment/productos --replicas=2 -n tienda
-```
-
-## Diagnóstico
-
-```powershell
-kubectl get all -n tienda
-kubectl describe pods -n tienda
-kubectl logs deployment/pedidos -n tienda
-kubectl logs deployment/frontend -n tienda
-kubectl get events -n tienda --sort-by=.metadata.creationTimestamp
-```
-
-Si un pod queda en `ImagePullBackOff` o `ErrImageNeverPull`, comprueba que configuraste `minikube docker-env` y construiste la imagen con el nombre y etiqueta exactos indicados arriba.
-
-## Apagar el proyecto
-
-Para detener el acceso web, pulsa Ctrl+C en la terminal donde ejecutaste `kubectl port-forward`.
-
-Para apagar el clúster sin eliminarlo:
-
-```powershell
-minikube stop
-```
-
-Para volver a encenderlo otro día:
-
-```powershell
-minikube start
-kubectl get pods -n tienda
-```
-
-Si los pods siguen desplegados, vuelve a iniciar el port-forward para abrir el frontend. No es necesario reconstruir las imágenes mientras no cambies el código y el clúster Minikube conserve su entorno.
-
-Para eliminar la aplicación del clúster:
+Para eliminar los recursos de la tienda del clúster:
 
 ```powershell
 kubectl delete -f k8s/
 ```
 
-Para eliminar también el clúster:
+### Volver a encenderla otro día
+
+1. Abre Docker Desktop y espera a que Kubernetes esté listo.
+2. Entra en la carpeta del repositorio.
+3. Ejecuta:
 
 ```powershell
-minikube delete
+kubectl config use-context docker-desktop
+kubectl get nodes
+kubectl apply -f k8s/
+kubectl get pods -n tienda
 ```
 
-## Estructura del repositorio
+4. Cuando los pods estén listos, vuelve a ejecutar:
+
+```powershell
+kubectl port-forward service/frontend 8080:80 -n tienda
+```
+
+5. Abre **http://localhost:8080**.
+
+No necesitas reconstruir las imágenes si no cambiaste el código y todavía están disponibles en Docker Desktop.
+
+---
+
+## 7. Solución de problemas
+
+### Kubernetes no está disponible
+
+Comprueba que Docker Desktop esté abierto y que Kubernetes esté iniciado:
+
+```powershell
+kubectl config current-context
+kubectl get nodes
+```
+
+Si el contexto no es `docker-desktop`, selecciónalo:
+
+```powershell
+kubectl config use-context docker-desktop
+```
+
+### Un pod no inicia
+
+Consulta su estado:
+
+```powershell
+kubectl get pods -n tienda
+kubectl describe pods -n tienda
+```
+
+Para consultar los registros de un componente:
+
+```powershell
+kubectl logs deployment/clientes -n tienda
+kubectl logs deployment/productos -n tienda
+kubectl logs deployment/pedidos -n tienda
+kubectl logs deployment/frontend -n tienda
+```
+
+Si aparece `ErrImageNeverPull`, revisa que hayas construido las cuatro imágenes con los nombres y etiquetas exactos del paso 3.
+
+### Ver todos los recursos y eventos
+
+```powershell
+kubectl get all -n tienda
+kubectl get events -n tienda --sort-by=.metadata.creationTimestamp
+```
+
+---
+
+## 8. Estructura del repositorio
 
 ```text
 kubernetes-2/
-├── clientes/
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── productos/
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── pedidos/
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── index.html
-│   ├── styles.css
-│   ├── app.js
-│   ├── nginx.conf
-│   └── Dockerfile
-├── k8s/
-│   ├── 00-namespace.yaml
-│   ├── 05-frontend.yaml
-│   ├── 10-clientes.yaml
-│   ├── 20-productos.yaml
-│   ├── 30-pedidos.yaml
-│   └── 40-pedidos-nodeport.yaml
-└── README.md
+├── clientes/       # API de clientes
+├── productos/      # API de productos
+├── pedidos/        # API de pedidos
+├── frontend/       # Página web y configuración de Nginx
+├── k8s/            # Archivos YAML para Kubernetes
+└── README.md       # Esta guía
 ```
+
+## Resumen rápido: comandos para encender la tienda
+
+Si ya tienes Docker Desktop abierto, Kubernetes activo, el repositorio descargado y las imágenes construidas, estos son los comandos principales:
+
+```powershell
+cd RUTA\A\kubernetes-2
+kubectl config use-context docker-desktop
+kubectl apply -f k8s/
+kubectl get pods -n tienda
+kubectl port-forward service/frontend 8080:80 -n tienda
+```
+
+Después abre **http://localhost:8080** en tu navegador.
+
+---
+
+**Repositorio:** https://github.com/jr-0205/kubernetes-2
